@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -40,6 +41,7 @@ const interests = [
 export function SignupFlow() {
   const [authMode, setAuthMode] = useState<AuthMode>('welcome');
   const [signupStep, setSignupStep] = useState<SignupStep>('email');
+  const { signUp, signIn, user, loading: authLoading } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [usernameAvailable, setUsernameAvailable] = useState<boolean | null>(null);
@@ -59,6 +61,26 @@ export function SignupFlow() {
     username: '',
     interests: [],
   });
+
+  // Redirect if user is already authenticated
+  useEffect(() => {
+    if (user && !authLoading) {
+      // User is authenticated, redirect to main app
+      window.location.href = '/dashboard';
+    }
+  }, [user, authLoading]);
+
+  // Show loading if auth is still loading
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex items-center gap-3">
+          <div className="w-6 h-6 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+          <span className="text-muted-foreground">Loading...</span>
+        </div>
+      </div>
+    );
+  }
 
   const updateAuthData = (field: keyof AuthData, value: string | string[]) => {
     setAuthData(prev => ({ ...prev, [field]: value }));
@@ -80,13 +102,32 @@ export function SignupFlow() {
     }
     
     setCheckingUsername(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
     
-    const unavailable = ['admin', 'user', 'test', 'john', 'jane'];
-    const isAvailable = !unavailable.some(word => username.toLowerCase().includes(word));
-    
-    setUsernameAvailable(isAvailable);
-    setCheckingUsername(false);
+    try {
+      // Check if username exists in profiles table
+      const { supabase } = await import('../lib/supabase');
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('username')
+        .eq('username', username.toLowerCase())
+        .single();
+      
+      if (error && error.code === 'PGRST116') {
+        // No rows returned, username is available
+        setUsernameAvailable(true);
+      } else if (data) {
+        // Username exists
+        setUsernameAvailable(false);
+      } else {
+        // Other error
+        setUsernameAvailable(null);
+      }
+    } catch (error) {
+      console.error('Error checking username:', error);
+      setUsernameAvailable(null);
+    } finally {
+      setCheckingUsername(false);
+    }
   };
 
   useEffect(() => {
@@ -104,12 +145,18 @@ export function SignupFlow() {
     
     setIsLoading(true);
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      console.log('Login successful:', { email: authData.email, password: authData.password });
-      alert('Welcome back! Login successful.');
+      const { data, error } = await signIn(authData.email, authData.password);
+      
+      if (error) {
+        console.error('Login failed:', error.message);
+        alert(`Login failed: ${error.message}`);
+      } else {
+        console.log('Login successful:', data.user?.email);
+        // User will be redirected by the auth state change
+      }
     } catch (error) {
       console.error('Login failed:', error);
+      alert('An unexpected error occurred during login.');
     } finally {
       setIsLoading(false);
     }
@@ -150,14 +197,29 @@ export function SignupFlow() {
       // Complete signup
       setIsLoading(true);
       try {
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        console.log('Signup complete:', authData);
-        alert('🎉 Welcome! Your account has been created successfully.');
-        // Reset to welcome screen
-        setAuthMode('welcome');
-        resetSignup();
+        const { data, error } = await signUp(authData.email, authData.password, {
+          firstName: authData.firstName,
+          lastName: authData.lastName,
+          username: authData.username,
+          gender: authData.gender,
+          age: authData.age,
+          country: authData.country,
+          interests: authData.interests
+        });
+        
+        if (error) {
+          console.error('Signup failed:', error.message);
+          alert(`Signup failed: ${error.message}`);
+        } else {
+          console.log('Signup successful:', data.user?.email);
+          alert('🎉 Welcome! Your account has been created successfully. Please check your email to verify your account.');
+          // Reset to welcome screen
+          setAuthMode('welcome');
+          resetSignup();
+        }
       } catch (error) {
         console.error('Signup failed:', error);
+        alert('An unexpected error occurred during signup.');
       } finally {
         setIsLoading(false);
       }

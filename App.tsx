@@ -1,9 +1,12 @@
-import { SignupFlow } from './components/SignupFlow';
+import { AuthProvider } from './contexts/AuthContext';
+import { AuthGuard } from './components/AuthGuard';
 
 export default function App() {
   return (
-    <div className="dark min-h-screen">
-      <SignupFlow />
-    </div>
+    <AuthProvider>
+      <div className="dark min-h-screen">
+        <AuthGuard />
+      </div>
+    </AuthProvider>
   );
 }
